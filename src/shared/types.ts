@@ -3,6 +3,56 @@ export type TileKind = "wall" | "floor" | "goal" | "gap";
 export type BoxKind = "timber" | "iron" | "glass";
 export type FloorMorph = "bridge" | "seal";
 export type AttemptStatus = "playing" | "cleared";
+export type LevelMode = "slide" | "roll";
+export type PatternId = "blank" | "ring" | "wave" | "leaf" | "star" | "spiral" | "moon";
+export type FaceKey = "up" | "down" | "north" | "south" | "east" | "west";
+export type Orientation = Record<FaceKey, FaceKey>;
+
+export interface NetPos {
+  x: number;
+  y: number;
+}
+
+export interface NetCell extends NetPos {
+  pattern: PatternId;
+}
+
+export interface CubeSkin {
+  id: string;
+  name: string;
+  cells: NetCell[];
+  root?: NetPos;
+  seal?: NetPos & { dir: Dir };
+}
+
+export interface CubeState {
+  skin: CubeSkin;
+  orientation: Orientation;
+  stamp: string;
+  stampFace: FaceKey;
+  packageId: string;
+  mirrored: boolean;
+}
+
+export interface CubeFace {
+  pattern: PatternId;
+  north: FaceKey;
+  east: FaceKey;
+}
+
+export interface FoldedCube {
+  faces: Record<FaceKey, CubeFace>;
+  seal: { a: FaceKey; b: FaceKey } | null;
+}
+
+export interface Receipt {
+  id: string;
+  label: string;
+  packageId: string;
+  top: PatternId;
+  sealDir: Dir;
+  stamp?: string | null;
+}
 
 export interface Vec {
   x: number;
@@ -14,6 +64,7 @@ export interface Box {
   kind: BoxKind;
   x: number;
   y: number;
+  cube?: CubeState;
 }
 
 export interface Plate {
@@ -45,6 +96,7 @@ export interface RuntimeLevel {
   id: string;
   title: string;
   blurb: string;
+  mode: LevelMode;
   width: number;
   height: number;
   tiles: TileKind[][];
@@ -53,6 +105,7 @@ export interface RuntimeLevel {
   plates: Plate[];
   doors: Door[];
   floors: FloorPatch[];
+  receipts: Receipt[];
 }
 
 export interface Attempt {
@@ -76,6 +129,7 @@ export interface GameDocument {
 export interface MoveResult {
   moved: boolean;
   pushed: boolean;
+  rolled?: boolean;
   boxId?: string;
   reason?: "blocked" | "cleared" | "idle";
 }

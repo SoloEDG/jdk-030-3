@@ -1,4 +1,6 @@
 import { tileCenter } from "./grid";
+import { bodyAtWorld, foldSkin, sealWorldEdge, topPattern } from "@/features/crate/lib/cube";
+import { boardHints } from "@/features/crate/lib/delivery";
 import type { Box, Door, FloorPatch, GameDocument, Plate } from "@/shared/types";
 
 export const TILE = 46;
@@ -44,8 +46,12 @@ export function paintStage(ctx: CanvasRenderingContext2D, document: GameDocument
   for (const floor of level.floors) paintFloor(ctx, floor, tile);
   for (const plate of level.plates) paintPlate(ctx, plate, tile);
   for (const door of level.doors) paintDoor(ctx, door, tile);
-  for (const box of level.boxes) paintBox(ctx, box, tile);
+  for (const box of level.boxes) {
+    if (box.cube && level.mode === "roll") paintRollingBox(ctx, box, tile);
+    else paintBox(ctx, box, tile);
+  }
   paintPlayer(ctx, level.player.x, level.player.y, tile, document.attempt.status === "cleared");
+  if (level.mode === "roll") paintSealHints(ctx, document, tile);
 }
 
 function paintTile(
@@ -184,4 +190,141 @@ function paintPlayer(
   ctx.arc(c.x + 4, c.y - 3, 2, 0, Math.PI * 2);
   ctx.fillStyle = ink;
   ctx.fill();
+}
+
+
+function paintRollingBox(ctx: CanvasRenderingContext2D, box: Box, tile: number): void {
+  const state = box.cube;
+  if (!state) return;
+  let folded;
+  try {
+    folded = foldSkin(state.skin);
+  } catch {
+    paintBox(ctx, box, tile);
+    return;
+  }
+  const px = box.x * tile;
+  const py = box.y * tile;
+  // isometric miniature of the rolled cube, top face prominent
+  ctx.save();
+  ctx.translate(px + tile / 2, py + tile / 2);
+  const s = tile * 0.20;
+  const top = [
+    { x: 0, y: -s * 1.35 },
+    { x: s * 1.05, y: -s * 0.82 },
+    { x: 0, y: -s * 0.3 },
+    { x: -s * 1.05, y: -s * 0.82 },
+  ];
+  const left = [top[3], top[2], { x: 0, y: s * 0.62 }, { x: -s * 1.05, y: s * 0.12 }];
+  const right = [top[2], top[1], { x: s * 1.05, y: s * 0.12 }, { x: 0, y: s * 0.62 }];
+  const topPatternId = topPattern(folded, state.orientation);
+  const shade = (points: { x: number; y: number }[], fill: string) => {
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i].x, points[i].y);
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.strokeStyle = "rgba(20,14,8,0.8)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  };
+  shade(left, "#b39060");
+  shade(right, "#9a7a4f");
+  shade(top, "#dcc594");
+  // paint top motif via simple letter/shape marker
+  const motif = topPatternId;
+  ctx.fillStyle = "#4a3218";
+  ctx.font = `${Math.max(9, tile * 0.24)}px "Songti SC", serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const symbol: Record<string, string> = {
+    ring: "◎",
+    wave: "≈",
+    leaf: "❧",
+    star: "✦",
+    spiral: "@",
+    moon: "☾",
+    blank: "·",
+  };
+  ctx.fillText(symbol[motif] ?? "?", 0, -s * 0.84);
+  const seal = sealWorldEdge(folded, state.orientation);
+  if (seal.includes("up")) {
+    const other = seal[0] === "up" ? seal[1] : seal[0];
+    const offsets: Record<string, { x: number; y: number }> = {
+      north: { x: 0, y: -s * 1.35 },
+      south: { x: 0, y: -s * 0.3 },
+      east: { x: s * 1.05, y: -s * 0.82 },
+      west: { x: -s * 1.05, y: -s * 0.82 },
+    };
+    const at = offsets[other];
+    if (at) {
+      ctx.strokeStyle = "#8f2f1d";
+      ctx.lineWidth = Math.max(2, tile * 0.05);
+      ctx.lineCap = "round";
+      const center = { x: 0, y: -s * 0.82 };
+      ctx.beginPath();
+      ctx.moveTo(center.x, center.y);
+      ctx.lineTo(center.x + (at.x - center.x) * 1.02, center.y + (at.y - center.y) * 1.02);
+      ctx.stroke();
+    }
+  }
+  if (state.stamp) {
+    const world = bodyAtWorld(state.orientation);
+    const stampWorld = world[state.stampFace];
+    const stampOffset: Record<string, { x: number; y: number }> = {
+      up: { x: 0, y: -s * 0.84 },
+      north: { x: 0, y: -s * 1.02 },
+      south: { x: 0, y: -s * 0.94 },
+      east: { x: s * 0.55, y: -s * 0.45 },
+      west: { x: -s * 0.55, y: -s * 0.45 },
+      down: { x: 0, y: 0 },
+    };
+    if (stampWorld === "up" || stampWorld === "north" || stampWorld === "east") {
+      const point = stampOffset[stampWorld];
+      ctx.fillStyle = "#7d2a1a";
+      ctx.font = `${Math.max(8, tile * 0.19)}px "Songti SC", serif`;
+      ctx.fillText(state.stamp, point.x, point.y);
+    }
+  }
+  ctx.restore();
+}
+
+
+const HINT_VEC: Record<string, { x: number; y: number }> = {
+  n: { x: 0, y: -1 },
+  s: { x: 0, y: 1 },
+  e: { x: 1, y: 0 },
+  w: { x: -1, y: 0 },
+};
+
+function paintSealHints(ctx: CanvasRenderingContext2D, document: GameDocument, tile: number): void {
+  for (const hint of boardHints(document)) {
+    const cx = hint.x * tile + tile / 2;
+    const cy = hint.y * tile + tile / 2;
+    const vector = HINT_VEC[hint.dir];
+    if (!vector) continue;
+    const start = 0.18;
+    const end = 0.46;
+    ctx.save();
+    ctx.strokeStyle = "#e8b898";
+    ctx.lineWidth = Math.max(2, tile * 0.055);
+    ctx.lineCap = "round";
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    ctx.moveTo(cx + vector.x * tile * start, cy + vector.y * tile * start);
+    ctx.lineTo(cx + vector.x * tile * end, cy + vector.y * tile * end);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const tipX = cx + vector.x * tile * (end + 0.03);
+    const tipY = cy + vector.y * tile * (end + 0.03);
+    ctx.fillStyle = "#e8b898";
+    ctx.beginPath();
+    ctx.moveTo(tipX, tipY);
+    ctx.lineTo(tipX - vector.x * tile * 0.09 + vector.y * tile * 0.06, tipY - vector.y * tile * 0.09 - vector.x * tile * 0.06);
+    ctx.lineTo(tipX - vector.x * tile * 0.09 - vector.y * tile * 0.06, tipY - vector.y * tile * 0.09 + vector.x * tile * 0.06);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
 }

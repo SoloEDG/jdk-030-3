@@ -1,5 +1,6 @@
 import { ref } from "vue";
 import { useAtlas } from "@/features/atlas";
+import { useCrate } from "@/features/crate";
 import { useGadget } from "@/features/gadget";
 import { useHauler } from "@/features/hauler";
 import { useLedger } from "@/features/ledger";
@@ -14,6 +15,7 @@ export function useWorkshop() {
     message: "把对得上的箱子压上踏板，门和地板会跟着变。",
   });
   const atlas = useAtlas(document);
+  const crate = useCrate(document);
   const hauler = useHauler(document);
   const gadget = useGadget(document);
   const ledger = useLedger(document);
@@ -32,28 +34,50 @@ export function useWorkshop() {
       return;
     }
     gadget.refresh();
+    crate.setFocusToAdjacent();
     const tick = ledger.afterMove(result);
     if (tick.cleared) {
       voyage.commitClear();
       notify({
         tone: "success",
-        message: `通关，用了 ${document.value.attempt.steps} 步。最佳记录已写入目录。`,
+        message: `通关，用了 ${document.value.attempt.steps} 步。收件单与箱面全部对上，最佳记录已写入目录。`,
       });
     }
   }
 
   function reset(): void {
     voyage.resetLevel();
+    crate.check(null);
     notify({ tone: "info", message: "已重置当前关卡，最佳记录仍在。" });
   }
 
   function selectLevel(id: string): void {
     voyage.openLevel(id);
+    crate.check(null);
+    const level = document.value.level;
     notify({
       tone: "info",
-      message: `进入「${document.value.level.title}」。${document.value.level.blurb}`,
+      message: `进入「${level.title}」。${level.blurb}`,
     });
   }
 
-  return { document, notice, atlas, hauler, gadget, ledger, voyage, move, reset, selectLevel };
+  function inspect(boxId: string | null): void {
+    if (boxId) crate.check(boxId);
+    else crate.check(null);
+  }
+
+  return {
+    document,
+    notice,
+    atlas,
+    crate,
+    hauler,
+    gadget,
+    ledger,
+    voyage,
+    move,
+    reset,
+    selectLevel,
+    inspect,
+  };
 }
